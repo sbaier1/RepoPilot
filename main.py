@@ -16,6 +16,11 @@ logger = logging.getLogger(__name__)
 
 if __name__ == "__main__":
     logger.info("Start!")
+    if os.environ.get("SERVER_MODE") is not None:
+        logger.info("Running in non-interactive mode")
+        # TODO adjust RepoPilot or build separate behavior
+        # TODO zoektserver "no-op" (only search) version (use already running server)
+        # TODO check which agents actually need a repo path and figure out how to get them to work without a specific repo path
     api_key = os.environ.get("OPENAI_API_KEY")
     repo = input("Please provide a valid folder path or GitHub URL: ")
     commit = input("Please provide a commit: (default: HEAD if enter)")
@@ -23,7 +28,7 @@ if __name__ == "__main__":
     question = input("Please provide a question: ")
     pilot = RepoPilot(repo, commit=commit, openai_api_key=api_key, language=language, clone_dir="data/repos")
     logger.info("Setup done!")
-    
+
     with get_openai_callback() as cb:
         pilot.query_codebase(question)
         print(f"Total Tokens: {cb.total_tokens}")
