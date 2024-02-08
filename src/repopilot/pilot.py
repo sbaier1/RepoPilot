@@ -45,6 +45,8 @@ def Setup(
     if openai_api_address is not None:
         tools = []
         for tool_class in tool_classes:
+            if issubclass(tool_class, CodeSearchTool):
+                tools.append(tool_class(repo_path, language=language, zoekt_addr=zoekt_address))
             if issubclass(tool_class, SemanticCodeSearchTool):
                 tools.append(tool_class(repo_path, language=language, db_path=db_path))
             else:
