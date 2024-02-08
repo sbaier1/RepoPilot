@@ -27,13 +27,14 @@ class ZoektServer:
 
     """
 
-    def __init__(self, language, repo_path:Optional[str]=None, index_path:Optional[str]=None):
+    def __init__(self, language, repo_path: Optional[str] = None, index_path: Optional[str] = None, address=None):
         self.index_path = index_path
         self.zoekt_server = None
         self.repo_path = repo_path
         self.language = language
-    
-    def setup_index(self, repo_path:str, root_index_path:str="/tmp/zoekt_tmp", index_path:Optional[str]=None):
+        self.address = address
+
+    def setup_index(self, repo_path: str, root_index_path: str = "/tmp/zoekt_tmp", index_path: Optional[str] = None):
         """
         Sets up the index for the repository.
 
@@ -42,12 +43,14 @@ class ZoektServer:
             index_path (str, optional): The path to the index directory. Defaults to ".zoekt_tmp".
 
         """
+        if self.address is not None:
+            return
         zoekt_index_repo_path = f"{root_index_path}/{repo_path.split('/')[-1]}" if not index_path else index_path
         self.repo_path = repo_path
         self.index_path = zoekt_index_repo_path
         if not Path(zoekt_index_repo_path).is_dir():
             Path(zoekt_index_repo_path).mkdir(parents=True)
-            
+
         subprocess.run(
             f"$GOPATH/bin/zoekt-index -index {zoekt_index_repo_path} -parallelism=1 {repo_path}",
             shell=True,
@@ -55,7 +58,7 @@ class ZoektServer:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-    
+
     @contextmanager
     def start_server(self):
         """
@@ -65,13 +68,17 @@ class ZoektServer:
             ZoektServer: The current instance of the ZoektServer class.
 
         """
+        if self.address is not None:
+            return
+        print("Trying to start zoekt")
         self.zoekt_server = subprocess.Popen(
             f"$GOPATH/bin/zoekt-webserver -listen :6070 -index {self.index_path}",
             shell=True,
         )
         while True:
             try:
-                response = requests.get("http://localhost:6070/health")  # replace with the correct endpoint if necessary
+                response = requests.get(
+                    "http://localhost:6070/health")  # replace with the correct endpoint if necessary
                 if response.status_code == 200:
                     break
             except requests.exceptions.ConnectionError:
@@ -81,14 +88,13 @@ class ZoektServer:
             yield self
         finally:
             output = subprocess.check_output(["lsof", "-i", ":6070"])
-            pid = int(output.split()[output.split().index(b'zoekt-web')+1])
+            pid = int(output.split()[output.split().index(b'zoekt-web') + 1])
             os.kill(pid, signal.SIGTERM)
             try:
                 self.zoekt_server.wait(timeout=1)
             except subprocess.TimeoutExpired:
                 self.zoekt_server.kill()
-                
-                
+
     def search(self, names, num_result=2):
         """
         Performs a search on the Zoekt server.
@@ -101,7 +107,10 @@ class ZoektServer:
             dict: A dictionary containing the search results for each name.
 
         """
-        url = "http://localhost:6070/search"
+        if self.address is not None:
+            url = f"{self.address}/search"
+        else:
+            url = "http://localhost:6070/search"
         search_results = {name: [] for name in names}
         for name in names:
             params = {

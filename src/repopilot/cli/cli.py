@@ -142,7 +142,7 @@ def query(
             temperature=0.1,
         )
     else:
-        llm = ChatOpenAI(temperature=0, model="gpt-4-1106-preview", openai_api_key=openai_api_key)
+        llm = ChatOpenAI(temperature=0, model="gpt-4-1106-preview", openai_api_key=openai_api_key, openai_api_base=openai_api_address)
         
     planner_input = {
         "examples": example_qa,

@@ -18,10 +18,12 @@ from repopilot.multilspy.multilspy_exceptions import MultilspyException
 from pathlib import PurePath, Path
 from repopilot.multilspy.multilspy_logger import MultilspyLogger
 
+
 class TextUtils:
     """
     Utilities for text operations.
     """
+
     @staticmethod
     def get_line_col_from_index(text: str, index: int) -> Tuple[int, int]:
         """
@@ -39,7 +41,7 @@ class TextUtils:
             idx += 1
 
         return l, c
-    
+
     @staticmethod
     def get_index_from_line_col(text: str, line: int, col: int) -> int:
         """
@@ -53,7 +55,7 @@ class TextUtils:
             idx += 1
         idx += col
         return idx
-    
+
     @staticmethod
     def get_updated_position_from_line_and_column_and_edit(l: int, c: int, text_to_be_inserted: str) -> Tuple[int, int]:
         """
@@ -67,10 +69,12 @@ class TextUtils:
             c += len(text_to_be_inserted)
         return (l, c)
 
+
 class PathUtils:
     """
     Utilities for platform-agnostic path operations.
     """
+
     @staticmethod
     def uri_to_path(uri: str) -> str:
         """
@@ -83,6 +87,7 @@ class PathUtils:
         parsed = urlparse(uri)
         host = "{0}{0}{mnt}{0}".format(os.path.sep, mnt=parsed.netloc)
         return os.path.normpath(os.path.join(host, url2pathname(unquote(parsed.path))))
+
 
 class FileUtils:
     """
@@ -107,7 +112,7 @@ class FileUtils:
             raise MultilspyException("File read failed.") from None
         logger.log(f"File read '{file_path}' failed: Unsupported encoding.", logging.ERROR)
         raise MultilspyException(f"File read '{file_path}' failed: Unsupported encoding.") from None
-    
+
     @staticmethod
     def download_file(logger: MultilspyLogger, url: str, target_path: str) -> None:
         """
@@ -159,6 +164,7 @@ class FileUtils:
                 if os.path.exists(tmp_file_name):
                     Path.unlink(Path(tmp_file_name))
 
+
 class PlatformId(str, Enum):
     """
     multilspy supported platforms
@@ -175,6 +181,7 @@ class PlatformId(str, Enum):
     LINUX_MUSL_x64 = "linux-musl-x64"
     LINUX_MUSL_arm64 = "linux-musl-arm64"
 
+
 class DotnetVersion(str, Enum):
     """
     multilspy supported dotnet versions
@@ -183,6 +190,7 @@ class DotnetVersion(str, Enum):
     V6 = "6"
     V7 = "7"
     VMONO = "mono"
+
 
 class PlatformUtils:
     """
@@ -198,7 +206,8 @@ class PlatformUtils:
         machine = platform.machine()
         bitness = platform.architecture()[0]
         system_map = {"Windows": "win", "Darwin": "osx", "Linux": "linux"}
-        machine_map = {"AMD64": "x64", "x86_64": "x64", "i386": "x86", "i686": "x86", "aarch64": "arm64"}
+        machine_map = {"AMD64": "x64", "x86_64": "x64", "i386": "x86", "i686": "x86", "aarch64": "arm64",
+                       "arm64": "arm64"}
         if system in system_map and machine in machine_map:
             platform_id = system_map[system] + "-" + machine_map[machine]
             if system == "Linux" and bitness == "64bit":

@@ -7,7 +7,7 @@ from langchain.chat_models import ChatOpenAI
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import Chroma
 from langchain.llms import VLLM
-from repopilot.tools import tool_classes, SemanticCodeSearchTool
+from repopilot.tools import tool_classes, SemanticCodeSearchTool, CodeSearchTool
 from repopilot.utils import clone_repo, check_local_or_remote
 from repopilot.agents.planner import load_chat_planner
 from repopilot.agents.plan_seeking import load_agent_navigator, load_agent_analyzer, PlanSeeking
@@ -39,7 +39,18 @@ def Setup(
     local_agent: bool = False,
     planner_type: str = DEFAULT_PLANNER_TYPE,
     verbose: int = DEFAULT_VERBOSE_LEVEL,
+    openai_api_address: str = None,
+    zoekt_address: str = None,
 ) -> PlanSeeking:
+    if openai_api_address is not None:
+        tools = []
+        for tool_class in tool_classes:
+            if issubclass(tool_class, SemanticCodeSearchTool):
+                tools.append(tool_class(repo_path, language=language, db_path=db_path))
+            else:
+                tools.append(tool_class(repo_path, language=language))
+        llm = ChatOpenAI(temperature=0.5, model="gpt-4-1106-preview", openai_api_key=openai_api_key, openai_api_base=openai_api_address)
+
     gh_token = os.environ.get("GITHUB_TOKEN", None)
     is_local, repo_path = check_local_or_remote(repo_path)
     repo_dir = clone_repo(repo_path, commit, clone_dir, gh_token, logger) if not is_local else repo_path
@@ -50,6 +61,8 @@ def Setup(
 
     tools = []
     for tool_class in tool_classes:
+        if zoekt_address is not None and issubclass(tool_class, CodeSearchTool):
+            tools.append(tool_class(repo_dir, language=language, zoekt_addr=zoekt_address))
         if issubclass(tool_class, SemanticCodeSearchTool):
             tools.append(tool_class(repo_dir, language=language, db_path=db_path))
         else:
@@ -74,7 +87,7 @@ def Setup(
             tensor_parallel_size=2  # for distributed inference
         )
     else:
-        llm = ChatOpenAI(temperature=0, model="gpt-4-1106-preview", openai_api_key=openai_api_key)
+        llm = ChatOpenAI(temperature=0.5, model="gpt-4-1106-preview", openai_api_key=openai_api_key, openai_api_base=openai_api_address)
 
     # Set up the planner agent
     planner_input = {
@@ -82,8 +95,8 @@ def Setup(
         "formatted_tools": formatted_tools,
         "struct": struct,
     }
-    llm_plan = ChatOpenAI(temperature=0, model="gpt-4-1106-preview", openai_api_key=openai_api_key)
-    llm_analyzer = ChatOpenAI(temperature=0, model="gpt-3.5-turbo-1106")
+    llm_plan = ChatOpenAI(temperature=0.5, model="gpt-4-1106-preview", openai_api_key=openai_api_key, openai_api_base=openai_api_address)
+    llm_analyzer = ChatOpenAI(temperature=0.5, model="gpt-3.5-turbo-1106", openai_api_base=openai_api_address)
     planner = load_chat_planner(
         llm=llm_plan,
         type=planner_type,
@@ -132,6 +145,8 @@ class RepoPilot:
         clone_dir="data/repos",
         examples=example_qa,
         save_trajectories_path=None,
+        zoekt_address: str = None,
+        openai_api_address: str = None,
     ):
         self.repo_path = repo_path
         self.openai_api_key = openai_api_key
@@ -147,8 +162,13 @@ class RepoPilot:
             clone_dir=clone_dir,
             examples=examples,
             save_trajectories_path=save_trajectories_path,
+            zoekt_address=zoekt_address,
+            openai_api_address=openai_api_address,
         )
 
     def query_codebase(self, query):
         result = self.system.run(query)
         return result
+
+    def get_system(self):
+        return self.system

@@ -21,8 +21,10 @@ from codetext.utils import build_language
 from repopilot.multilspy import lsp_protocol_handler
 from repopilot.constants import SEMANTIC_CODE_SEARCH_DB_PATH
 
+
 class CodeSearchArgs(BaseModel):
     names: list[str] = Field(..., description="The names of the identifiers to search")
+
 
 class CodeSearchTool(BaseTool):
     """
@@ -58,8 +60,9 @@ class CodeSearchTool(BaseTool):
     verbose = False
     language = "python"
     backend: jedi.Project | ZoektServer = None
-    
-    def __init__(self, path: str, language: str, index_path: Optional[str] = None, build: bool = False):
+
+    def __init__(self, path: str, language: str, index_path: Optional[str] = None, build: bool = False,
+                 zoekt_addr: str = None):
         super().__init__()
         self.path = path
         self.language = language
@@ -68,27 +71,29 @@ class CodeSearchTool(BaseTool):
             if build:
                 if not os.path.exists(index_path):
                     os.makedirs(index_path)
-                self.backend = ZoektServer(language)
+                self.backend = ZoektServer(language, address=zoekt_addr)
                 self.backend.setup_index(path, index_path=index_path)
                 build_language(language)
             else:
-                self.backend = ZoektServer(language, repo_path=path, index_path=index_path)
+                self.backend = ZoektServer(language, repo_path=path, index_path=index_path, address=zoekt_addr)
 
         elif language == "python":
             "Code Search Tool will switch to use Jedi python search engine, this provides more fine-grained results such as implementation, docstring, etc."
             self.backend = jedi.Project(path, environment_path=get_env_path())
-    
+
     def _run(self, names: list[str], verbose: bool = True):
         return search_elements_inside_project(names, self.backend, verbose=verbose, language=self.language)
-    
+
     def _arun(self, names: list[str], verbose: bool = True):
         return NotImplementedError("Code Search Tool is not available for async run")
+
 
 class GoToDefinitionArgs(BaseModel):
     word: str = Field(..., description="The name of the symbol to search")
     line: int = Field(..., description="The line number of the symbol to search")
     relative_path: str = Field(..., description="The relative path of the file containing the symbol to search")
-    
+
+
 class GoToDefinitionTool(BaseTool):
     """
     A tool for finding the definition of a symbol inside a code snippet.
@@ -123,12 +128,12 @@ class GoToDefinitionTool(BaseTool):
     lsptoolkit: LSPToolKit = None
     language = "python"
     verbose = False
-    
+
     def __init__(self, path: str, language: str):
         super().__init__()
         self.path = path
         self.lsptoolkit = LSPToolKit(path, language)
-    
+
     def _run(self, word: str, line: int, relative_path: str, verbose: bool = True):
         """
         Runs the tool to find the definition of a symbol.
@@ -149,7 +154,9 @@ class GoToDefinitionTool(BaseTool):
 class FindAllReferencesArgs(BaseModel):
     word: str = Field(..., description="The name of the symbol to find all references")
     line: int = Field(..., description="The line number of the symbol to find all references")
-    relative_path: str = Field(..., description="The relative path of the file containing the symbol to find all references")
+    relative_path: str = Field(...,
+                               description="The relative path of the file containing the symbol to find all references")
+
 
 class FindAllReferencesTool(BaseTool):
     """
@@ -165,13 +172,13 @@ class FindAllReferencesTool(BaseTool):
     path = ""
     verbose = False
     language = "python"
-    
+
     def __init__(self, path: str, language: str):
         super().__init__()
         self.path = path
         self.lsptoolkit = LSPToolKit(path, language)
         self.openai_engine = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    
+
     def _run(self, word: str, line: int, relative_path: str, reranking: bool = False, query: str = ""):
         """
         Run the tool to find all references of a target symbol.
@@ -201,7 +208,7 @@ class FindAllReferencesTool(BaseTool):
             return self.rerank(results, query)
         else:
             return results[:5]
-    
+
     def rerank(self, results: List[str], query: str):
         """
         Rerank the results based on a query.
@@ -220,7 +227,7 @@ class FindAllReferencesTool(BaseTool):
             new_item["content"] = item
         results = sorted(reranked_results, key=lambda x: x["score"], reverse=True)
         return [item["content"] for item in results[:5]]
-    
+
     def similarity(self, query: str, implementation):
         """
         Calculate the similarity score between a query and an implementation.
@@ -232,14 +239,21 @@ class FindAllReferencesTool(BaseTool):
         Returns:
             float: The similarity score between the query and implementation.
         """
-        embed_query = np.array(self.openai_engine.embeddings.create(input=query, model="text-embedding-ada-002").data[0].embedding)
-        embed_implementation = np.array(self.openai_engine.embeddings.create(input=implementation, model="text-embedding-ada-002").data[0].embedding)
-        score = np.dot(embed_query, embed_implementation) / (np.linalg.norm(embed_query) * np.linalg.norm(embed_implementation))
+        embed_query = np.array(
+            self.openai_engine.embeddings.create(input=query, model="text-embedding-ada-002").data[0].embedding)
+        embed_implementation = np.array(
+            self.openai_engine.embeddings.create(input=implementation, model="text-embedding-ada-002").data[
+                0].embedding)
+        score = np.dot(embed_query, embed_implementation) / (
+                    np.linalg.norm(embed_query) * np.linalg.norm(embed_implementation))
         return score
+
 
 class GetAllSymbolsArgs(BaseModel):
     path_to_file: str = Field(..., description="The path of the python file we want extract all symbols from.")
-    preview_size: int = Field(..., description="The number of lines of the definition to preview, useful when the definition is too long and we want to save number of tokens, default by 5")
+    preview_size: int = Field(...,
+                              description="The number of lines of the definition to preview, useful when the definition is too long and we want to save number of tokens, default by 5")
+
 
 class GetAllSymbolsTool(BaseTool):
     """
@@ -257,12 +271,12 @@ class GetAllSymbolsTool(BaseTool):
     path = ""
     verbose = False
     language = "python"
-    
-    def __init__(self, path: str, language: str ="python"):
+
+    def __init__(self, path: str, language: str = "python"):
         super().__init__()
         self.path = path
         self.lsptoolkit = LSPToolKit(path, language)
-    
+
     def _run(self, path_to_file: str, preview_size: int = 5):
         """
         Run the tool to get all symbols of a Python file.
@@ -283,9 +297,12 @@ class GetAllSymbolsTool(BaseTool):
         except lsp_protocol_handler.server.Error:
             return "Internal error, please use other tool"
 
+
 class GetTreeStructureArgs(BaseModel):
     relative_path: str = Field(..., description="The relative path of the folder we want to explore")
-    level: int = Field(..., description="The level of the tree structure we want to explore, prefer to use 2 (default) for a quick overview of the folder structure then use 3 for more details")
+    level: int = Field(...,
+                       description="The level of the tree structure we want to explore, prefer to use 2 (default) for a quick overview of the folder structure then use 3 for more details")
+
 
 class GetTreeStructureTool(BaseTool):
     """
@@ -318,22 +335,24 @@ class GetTreeStructureTool(BaseTool):
     args_schema = GetTreeStructureArgs
     path = ""
     verbose = False
-    
+
     def __init__(self, path, language):
         super().__init__()
         self.path = path
-    
+
     def _run(self, relative_path: str, level: int = 2):
         abs_path = os.path.join(self.path, relative_path)
         try:
             output = visualize_tree(abs_path, level=level)
             output = "The tree structure of " + relative_path + " is: \n" + output
-        except: 
+        except:
             output = "Execution failed, please check the relative path again, likely the relative path lacks of prefix directory name"
         return output
 
+
 class OpenFileArgs(BaseModel):
     relative_file_path: str = Field(..., description="The relative path of the file we want to open")
+
 
 class OpenFileTool(BaseTool):
     """
@@ -359,11 +378,11 @@ class OpenFileTool(BaseTool):
     description = """Useful when you want to open a file inside a repo, use this tool only when it's very necessary, usually a main or server or training script. Consider combinining other alternative tools such as GetAllSymbols and CodeSearch to save the number of tokens for other cases."""
     args_schema = OpenFileArgs
     path = ""
-    
+
     def __init__(self, path, language):
         super().__init__()
         self.path = path
-    
+
     def _run(self, relative_file_path: str, max_new_line: int = 500):
         """
         Opens the specified file and returns its content.
@@ -380,15 +399,15 @@ class OpenFileTool(BaseTool):
         try:
             source = open(abs_path, "r").read()
             lines = source.split("\n")
-            source = "\n".join(lines[:max_new_line]) 
+            source = "\n".join(lines[:max_new_line])
         except FileNotFoundError:
             return "File not found, please check the path again"
         source = add_num_line(source, 0)
         return "The content of " + relative_file_path + " is: \n" + source
-    
+
 
 class SemanticCodeSearchTool(Tool):
-    def __init__(self, path, language:str="python", db_path: Optional[str] = None, build: bool = False):
+    def __init__(self, path, language: str = "python", db_path: Optional[str] = None, build: bool = False):
         """Semantic code search tool allows you to search for code using natural language. It's useful when the query is a sentance, semantic and vague. If exact search such as code search failed after multiple tries, try this
 
         Args:
@@ -410,22 +429,25 @@ class SemanticCodeSearchTool(Tool):
                 suffixes=[extension],
                 parser=LanguageParser(language=language, parser_threshold=500),
             )
-            
+
             documents = loader.load()
             texts = splitter.split_documents(documents)
             db = Chroma.from_documents(texts, OpenAIEmbeddings(disallowed_special=()), persist_directory=db_path)
             db.persist()
         else:
             db = Chroma(persist_directory=db_path, embedding_function=OpenAIEmbeddings(disallowed_special=()))
-        
+
         def semantic_code_search(query):
             retrieved_docs = db.similarity_search(query, k=3)
             return [doc.page_content for doc in retrieved_docs]
-        
+
         super().__init__(
             name="Semantic Code Search",
             func=semantic_code_search,
             description="useful for when the query is a sentance, semantic and vague. If exact search such as code search failed after multiple tries, try this",
         )
 
-tool_classes = [CodeSearchTool, SemanticCodeSearchTool, GoToDefinitionTool, FindAllReferencesTool, GetAllSymbolsTool, GetTreeStructureTool, OpenFileTool]
+
+# TODO: make GoToDefinitionTool FindAllReferencesTool GetAllSymbolsTool SemanticCodeSearchTool compatible again (multilspy doesn't work atm, can we use a different, maybe already running LSP? intellij LSP?)
+tool_classes = [CodeSearchTool, GetTreeStructureTool,
+                OpenFileTool]

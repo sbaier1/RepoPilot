@@ -168,14 +168,14 @@ def search_zoekt_elements_inside_project(names: list, backend: object, num_resul
     search_results = {name: [] for name in names}
 
     with backend.start_server():
-        zoekt_results = backend.search([f"sym:{name}" for name in names], num_result=num_result)
+        zoekt_results = backend.search([f"{name}" for name in names], num_result=num_result)
 
     for name in names:
-        files = zoekt_results[f'sym:{name}']["result"]["FileMatches"]
+        files = zoekt_results[f'{name}']["result"]["FileMatches"]
 
         if not files:
             continue
-
+        # TODO not sure if this needs to use the OS. try using zoekt to get the file contents instead? more robust for arbitrary dir structures + multirepo
         for file in files:
             source = open(os.path.join(backend.repo_path, file["FileName"]), "r").read()
             root_node = parse_code(source, backend.language).root_node
