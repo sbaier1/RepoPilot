@@ -14,7 +14,7 @@ setup(
                           "openai", 
                           "tree-sitter", 
                           "tree-sitter-languages", 
-                          "vllm",
+                          #"vllm",
                           "datasets",
                           "Click",
                           "codetext",

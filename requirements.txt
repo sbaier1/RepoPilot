@@ -3,7 +3,7 @@ langchain
 openai
 javalang
 tree-sitter-languages
-vllm
+#vllm
 transformers
 datasets
 codetext

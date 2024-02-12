@@ -70,7 +70,6 @@ class ZoektServer:
         """
         if self.address is not None:
             return
-        print("Trying to start zoekt")
         self.zoekt_server = subprocess.Popen(
             f"$GOPATH/bin/zoekt-webserver -listen :6070 -index {self.index_path}",
             shell=True,
