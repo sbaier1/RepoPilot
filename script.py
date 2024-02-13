@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.encoders import jsonable_encoder
 from langchain.chains import LLMChain
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.tools import StructuredTool
@@ -13,10 +14,11 @@ from langchain_openai import ChatOpenAI
 from langserve import add_routes
 from pydantic import BaseModel
 from langchain.adapters import openai as lc_openai
+from starlette.responses import StreamingResponse
 
 # Start it with -rpc
 zoekt_addr = "http://localhost:6070"
-openai_api_address = "http://192.168.178.28:5000/v1"
+openai_api_address = "http://192.168.0.169:5000/v1"
 openai_api_key = "none"
 
 query = "Get the code for ClusterController and make sure the 500 error codes are reflected in all the api annotations. Respond with a markdown diff block containing the entire change"
@@ -67,7 +69,7 @@ def search(query: str, get_context=True, num_result=10):
                         current_file_context.append(decoded_line)
 
     if len(results) == 0:
-        results["invalid"] = f"adjust your query. it didn't return any results {random.randint(1000, 50000)}."
+        results["invalid"] = f"adjust your query. it didn't return any results."
     print(f"search tool invoked, query {query}, result {results}")
     return results
 
@@ -130,7 +132,7 @@ def convert_intermediate_steps(intermediate_steps):
     return log
 
 
-from typing import List
+from typing import List, Optional
 
 
 class Message(BaseModel):
@@ -148,27 +150,23 @@ class Payload(BaseModel):
     presence_penalty: float
 
 
+class Choice(BaseModel):
+    index: int
+    finish_reason: Optional[str]
+    message: dict
+    delta: dict
+
+
+class ChatCompletionChunk(BaseModel):
+    id: str
+    object: str
+    created: int
+    model: str
+    choices: List[Choice]
+
+
 def main():
     tools = get_tools()
-    formatted_tools = "\n".join([f"{tool.name}: {tool.description}" for tool in tools])
-    system_msg = \
-        f"""### System prompt        
-You are a programming assistant.
-Write a comprehensive and exhaustive answer, use more tools when necessary.
-
-When tools don't provide expected results, adjust your input.
-When you aren't sure about something, use tools to figure it out.
-Use tools. Don't mark your answer as final until it really is.
-
-### User Message
-{query}
-
-Make sure to follow the method calls exhaustively and recursively, query what they do exactly if necessary.
-Query each call to figure out what it actually does. Don't assume anything
-
-### Assistant
-
-"""
     model = ChatOpenAI(model="gpt-4", temperature=0.8, openai_api_key=openai_api_key,
                        openai_api_base=openai_api_address, streaming=True)
 
@@ -177,26 +175,12 @@ Query each call to figure out what it actually does. Don't assume anything
     # https://python.langchain.com/docs/modules/agents/agent_types/openai_tools
     # https://python.langchain.com/docs/expression_language/cookbook/tools
     from langchain import hub
-    # prompt = hub.pull("hwchase17/xml-agent-convo")
-    # chain = prompt | agent | output_parser
-    tool_string = "\n".join([f"{tool.name}: {tool.description}" for tool in tools])
 
-    # agent = (
-    #        {
-    #            "input": lambda x: x["input"],
-    #            "agent_scratchpad": lambda x: convert_intermediate_steps(
-    #                x["intermediate_steps"]
-    #            ),
-    #        }
-    #        | prompt.partial(tools=tool_string)
-    #        | model.bind(stop=["</tool_input>", "</final_answer>"])
-    #        | XMLAgentOutputParser()
-    # )
     prompt = hub.pull("hwchase17/structured-chat-agent")
     agent = create_structured_chat_agent(model, tools, prompt)
     # prompt = hub.pull("hwchase17/react-chat-json")
     # agent = create_json_chat_agent(model, tools, prompt)
-    agent_executor = AgentExecutor(agent=agent,tools=tools, verbose=True, handle_parsing_errors=True)
+    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True, handle_parsing_errors=True)
 
     app = FastAPI(
         title="LangChain Server",
@@ -204,25 +188,43 @@ Query each call to figure out what it actually does. Don't assume anything
         description="A simple api server using Langchain's Runnable interfaces",
     )
 
-    async def transform(payload: dict):
+    @app.post("/v1/chat/completions")
+    async def create_completion(payload: dict):
         transformed = ""
         payload = Payload.parse_obj(payload)
         for message in payload.messages:
-            if message.role == "system":
-                transformed += "### System prompt\n"
-            if message.role == "user":
+            #if message.role == "system":
+                #transformed += "### System prompt\nMake sure to use the provided tools when applicable.\n"
+            if message.role == "user":  # Changed 'if' to 'elif' to ensure exclusive conditions
                 transformed += "### User Message\n"
-            else:
-                print(f"role {message.role} unknown")
-            transformed += message.content
-        return agent_executor.invoke({"input": transformed})
+                transformed += message.content
+            #else:
+            #    print(f"role {message.role} unknown")
 
-    add_routes(
-        app,
-        transform | agent_executor | RunnablePassthrough(),
-        input_type=Payload,
-        path="/v1",
-    )
+        print(f"message: {transformed}") It''
+
+        async def generator():
+            async for event in agent_executor.astream({"input": transformed}):
+                print(f"received event: {event}")
+                if "output" in event:
+                    item = ChatCompletionChunk(
+                        id="chatcmpl",
+                        object="chat.completions.chunk",
+                        created=1707817924,
+                        model="idk",
+                        choices=[
+                            {
+                                "index": 0,
+                                "finish_reason": None,
+                                "message": {"role": "assistant", "content": event["output"]},
+                                "delta": {"role": "assistant", "content": event["output"]},
+                            }
+                        ],
+                    )
+                    yield json.dumps(jsonable_encoder(item))
+
+        return StreamingResponse(generator(), media_type="application/json")
+
     from fastapi.middleware.cors import CORSMiddleware
     app.add_middleware(
         CORSMiddleware,
